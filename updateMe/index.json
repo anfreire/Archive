@@ -1,0 +1,30 @@
+{
+  "com.hdobox": {
+    "versions": { "old": "2.0.19", "new": "2.0.19" },
+    "links": {
+      "old": "https://hdo.app/download",
+      "new": "https://hdo.app/download"
+    }
+  },
+  "com.mgoogle.android.gms": {
+    "versions": { "old": "0.2.24.220220", "new": "0.2.24.220220" },
+    "links": {
+      "old": "https://github.com//TeamVanced/VancedMicroG/releases/download/v0.2.24.220220-220220001/microg.apk",
+      "new": "https://github.com//TeamVanced/VancedMicroG/releases/download/v0.2.24.220220-220220001/microg.apk"
+    }
+  },
+  "app.revanced.android.youtube": {
+    "versions": { "old": "18.45.43", "new": "18.45.43" },
+    "links": {
+      "old": "https://github.com//j-hc/revanced-magisk-module/releases/download/20220913/youtube-revanced-v18.45.43-all.apk",
+      "new": "https://github.com//j-hc/revanced-magisk-module/releases/download/20220913/youtube-revanced-v18.45.43-all.apk"
+    }
+  },
+  "app.revanced.android.apps.youtube.music": {
+    "versions": { "old": "6.28.52", "new": "6.28.52" },
+    "links": {
+      "old": "https://github.com//j-hc/revanced-magisk-module/releases/download/20220913/music-revanced-v6.28.52-arm64-v8a.apk",
+      "new": "https://github.com//j-hc/revanced-magisk-module/releases/download/20220913/music-revanced-v6.28.52-arm64-v8a.apk"
+    }
+  }
+}
