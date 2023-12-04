@@ -5,6 +5,34 @@ from pyaxmlparser import APK
 import re
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
+from dataclasses import dataclass
+
+
+@dataclass
+class APKInfo:
+    version: str
+    link: str
+
+    @property
+    def toDict(self):
+        return {"version": self.version, "link": self.link}
+
+    def __eq__(self, other):
+        return self.version == other.version and self.link == other.link
+
+
+@dataclass
+class AppInfo:
+    package: str
+    apkInfo: APKInfo
+
+    @property
+    def toDict(self):
+        return {
+            "package": self.package,
+            "version": self.apkInfo.version,
+            "link": self.apkInfo.link,
+        }
 
 
 class GLOBAL:
@@ -26,6 +54,15 @@ class MACROS:
     YOUTUBE_MICROG = "YOUTUBE_MICROG"
 
 
+class COLORS:
+    RED: str = "\033[1;31m"
+    GREEN: str = "\033[1;32m"
+    YELLOW: str = "\033[1;33m"
+    BLUE: str = "\033[1;34m"
+    WHITE: str = "\033[1;37m"
+    RESET: str = "\033[0;0m"
+
+
 PATHS = {
     MACROS.SPOTIFY: DIRS.SPOTIFY + "/spotify.apk",
     MACROS.HDO: DIRS.HDO + "/hdo.apk",
@@ -34,46 +71,86 @@ PATHS = {
     MACROS.YOUTUBE_MICROG: DIRS.YOUTUBE + "/micro_g.apk",
 }
 
+PACKAGES = {
+    MACROS.HDO: "com.hdobox",
+    MACROS.YOUTUBE: "app.revanced.android.youtube",
+    MACROS.YOUTUBE_MUSIC: "app.revanced.android.apps.youtube.music",
+    MACROS.YOUTUBE_MICROG: "com.mgoogle.android.gms",
+    MACROS.SPOTIFY: "com.spotify.music",
+}
+
+
+class Exceptions:
+    class InvalidMacro(Exception):
+        def __init__(self, macro: str):
+            self.macro = macro
+
+        def __str__(self):
+            return f"{COLORS.RED}Error{COLORS.RESET} Macro {COLORS.WHITE}{self.macro}{COLORS.RESET} not found in PATHS"
+
+    class InvalidUrl(Exception):
+        def __init__(self, url: str):
+            self.url = url
+
+        def __str__(self):
+            return f"{COLORS.RED}Error{COLORS.RESET} Invalid url {COLORS.WHITE}{self.url}{COLORS.RESET}"
+
+    class InvalidPackage(Exception):
+        def __init__(self, macro: str, package: str):
+            self.macro = macro
+            self.package = package
+
+        def __str__(self):
+            return f"{COLORS.RED}Error{COLORS.RESET} Macro {COLORS.WHITE}{self.macro}{COLORS.RESET} has package {COLORS.WHITE}{self.package}{COLORS.RESET} instead of {COLORS.WHITE}{PACKAGES[self.macro]}{COLORS.RESET}"
+
 
 class AppBase:
-    def __init__(self, macro: str):
+    def __init__(self, macro: str, url: str):
         if macro not in PATHS.keys():
-            raise ValueError(f"Macro {macro} not found in PATHS")
+            raise Exceptions.InvalidMacro(macro)
         self.macro = macro
-        self.path = PATHS[macro]
+        self.get_apk(url)
+        apkInfo = self.extract_apk(url)
+        self.update_index(apkInfo)
 
-    def update_apk(self, url: str):
-        if url is None:
-            raise ValueError("No url provided")
+    def get_apk(self, url: str):
         r = requests.get(url)
         with open(PATHS[self.macro], "wb") as apk:
             apk.write(r.content)
+        apk = APK(PATHS[self.macro])
+        if apk.package != PACKAGES[self.macro]:
+            os.remove(PATHS[self.macro])
+            raise Exceptions.InvalidPackage(self.macro, apk.package)
 
-    def update_version(self, url: str):
+    def extract_apk(self, url: str):
+        apk = APK(PATHS[self.macro])
+        os.remove(PATHS[self.macro])
+        return APKInfo(apk.version_name, url)
+
+    def update_index(self, new: APKInfo):
         index = None
         with open(GLOBAL.INDEX_PATH, "r") as index_file:
             index = json.load(index_file)
-        apk = APK(PATHS[self.macro])
-        new_version = apk.version_name
-        old_version = new_version
         try:
-            old_version = index[apk.package]["versions"]["new"]
+            oldAPKInfo = APKInfo(
+                index[self.macro]["version"], index[self.macro]["link"]
+            )
         except:
-            pass
-        new_link = url
-        old_link = new_link
-        try:
-            old_link = index[apk.package]["links"]["new"]
-        except:
-            pass
-        index[apk.package] = {
-            "versions": {"old": old_version, "new": new_version},
-            "links": {"old": old_link, "new": new_link},
-        }
-        index_dump = json.dumps(index)
+            oldAPKInfo = APKInfo("", "")
+        if oldAPKInfo == new:
+            print(
+                f"{COLORS.GREEN}Success{COLORS.RESET} No update for {COLORS.WHITE}{self.macro}{COLORS.RESET}"
+            )
+            return
+        old_version = oldAPKInfo.version
+        index[self.macro]["version"] = new.version
+        index[self.macro]["link"] = new.link
+        index_dump = json.dumps(index, indent=4)
         with open(GLOBAL.INDEX_PATH, "w") as index_file:
             index_file.write(index_dump)
-        os.remove(PATHS[self.macro])
+        print(
+            f"{COLORS.GREEN}Success{COLORS.RESET} Updated {COLORS.WHITE}{self.macro}{COLORS.RESET} from {COLORS.WHITE}{old_version}{COLORS.RESET} to {COLORS.WHITE}{new.version}{COLORS.RESET}"
+        )
 
 
 GITHUB_DATA = {
@@ -137,19 +214,13 @@ class GithubScrapping:
         return links
 
 
-def getUrl():
-    microG = GithubScrapping(
-        GITHUB_DATA[MACROS.YOUTUBE]["user"],
-        GITHUB_DATA[MACROS.YOUTUBE]["repo"],
-    )
-    print(microG.link(microG.getVersions()[0], [".apk", "music"]))
-
-
 def updateHDO():
     link = "https://hdo.app/download"
-    hdo = AppBase(MACROS.HDO)
-    hdo.update_apk(link)
-    hdo.update_version(link)
+    try:
+        AppBase(MACROS.HDO, link)
+    except Exception as e:
+        print(e)
+        return
 
 
 def updateMicroG():
@@ -159,9 +230,11 @@ def updateMicroG():
     )
     latest = scrapper.getVersions()[0]
     link = scrapper.link(latest, [".apk"])[0]
-    microG = AppBase(MACROS.YOUTUBE_MICROG)
-    microG.update_apk(link)
-    microG.update_version(link)
+    try:
+        AppBase(MACROS.YOUTUBE_MICROG, link)
+    except Exception as e:
+        print(e)
+        return
 
 
 def updateYoutube():
@@ -180,9 +253,11 @@ def updateYoutube():
             link = _
             break
         index += 1
-    youtube = AppBase(MACROS.YOUTUBE)
-    youtube.update_apk(link)
-    youtube.update_version(link)
+    try:
+        AppBase(MACROS.YOUTUBE, link)
+    except Exception as e:
+        print(e)
+        return
 
 
 def updateYoutubeMusic():
@@ -201,9 +276,49 @@ def updateYoutubeMusic():
             link = _
             break
         index += 1
-    youtube = AppBase(MACROS.YOUTUBE_MUSIC)
-    youtube.update_apk(link)
-    youtube.update_version(link)
+    try:
+        AppBase(MACROS.YOUTUBE_MUSIC, link)
+    except Exception as e:
+        print(e)
+        return
+
+
+def updateSpotifyRaw():
+    while True:
+        link = input("Enter the link to the spotify apk: ")
+        print(f"\n\n{link}\nIs this the correct link? (y/n)")
+        if input().lower() == "y":
+            break
+    try:
+        AppBase(MACROS.SPOTIFY, link)
+    except Exception as e:
+        print(e)
+        return
+
+
+def updateSpotifySelenium():
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+
+    options = Options()
+    options.headless = True
+    driver = webdriver.Chrome(options=options)
+    driver.get("https://spotifygeek.tricksnation.com/link/download/1/")
+    elements = driver.find_elements(By.XPATH, "//a[@href]")
+    link = None
+    for element in elements:
+        if element.get_attribute("href") and element.get_attribute("href").endswith(
+            ".apk"
+        ):
+            link = element.get_attribute("href")
+            break
+    driver.quit()
+    try:
+        AppBase(MACROS.SPOTIFY, link)
+    except Exception as e:
+        print(e)
+        return
 
 
 def main():
@@ -211,6 +326,7 @@ def main():
     updateMicroG()
     updateYoutube()
     updateYoutubeMusic()
+    updateSpotifySelenium()
 
 
 if __name__ == "__main__":
