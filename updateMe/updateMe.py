@@ -1,11 +1,20 @@
+import re
 import os
 import json
 import requests
+import datetime
 from pyaxmlparser import APK
-import re
-from urllib.request import urlopen
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
+from urllib.request import urlopen
+from abc import ABC, abstractmethod
+from typing import List
+from selenium.webdriver.remote.webelement import WebElement
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from bs4.element import PageElement
+from bs4.element import ResultSet
 
 
 @dataclass
@@ -160,19 +169,53 @@ GITHUB_DATA = {
 }
 
 
+class WebScrapper:
+    def __init__(self, selenium: bool = False):
+        self.__driver = None if not selenium else self.init_selenium()
+
+    @property
+    def driver(self):
+        if not self.__driver:
+            raise Exception(
+                f"{COLORS.RED}Error{COLORS.RESET} Selenium not initialized, specify {COLORS.WHITE}selenium=True{COLORS.RESET} in constructor"
+            )
+        return self.__driver
+
+    def init_selenium(self) -> None:
+        options = Options()
+        options.headless = True
+        return webdriver.Chrome(options=options)
+
+    def quit_selenium(self) -> None:
+        if self.__driver:
+            self.__driver.quit()
+            self.__driver = None
+
+    def __del__(self):
+        if self.__driver:
+            self.__driver.quit()
+
+    def get_selenium_tags(self, driver: webdriver.Chrome, tag: str) -> List[WebElement]:
+        return driver.find_elements(By.XPATH, f"//{tag}")
+
+    def get_urllib_tags(self, url: str, tag: str) -> ResultSet[PageElement]:
+        page = urlopen(url)
+        soup = BeautifulSoup(page, "html.parser")
+        return soup.find_all(tag)
+
+
 class GithubScrapping:
     def __init__(self, user: str, repo: str):
         self.user = user
         self.repo = repo
+        self.scrapper = WebScrapper()
 
     @property
     def prefix(self):
         return f"https://github.com/{self.user}/{self.repo}"
 
     def getVersions(self) -> list:
-        page = urlopen(f"{self.prefix}/releases")
-        soup = BeautifulSoup(page, "html.parser")
-        divs = soup.find_all("div")
+        divs = self.scrapper.get_urllib_tags(f"{self.prefix}/releases", "div")
         versions = list()
         for div in divs:
             if div.find("svg", attrs={"aria-label": "Tag"}) and div.find("span"):
@@ -192,18 +235,21 @@ class GithubScrapping:
                     continue
         return versions
 
-    def link(self, version: str, terms: list) -> list:
-        page = urlopen(
-            f"https://github.com/{self.user}/{self.repo}/releases/expanded_assets/{version}"
+    def link(self, version: str, include: List[str] = [], exclude: List[str] = []):
+        lis = self.scrapper.get_urllib_tags(
+            f"{self.prefix}/releases/expanded_assets/{version}", "li"
         )
-        soup = BeautifulSoup(page, "html.parser")
-        lis = soup.find_all("li")
         links = []
         for li in lis:
             div = li.find("div")
             if div and div.find("svg") and div.find("a"):
                 href = div.find("a").get("href")
-                if href and len(href) != 0 and all(term in href for term in terms):
+                if (
+                    href
+                    and len(href) != 0
+                    and all(term in href for term in include)
+                    and all(term not in href for term in exclude)
+                ):
                     link = (
                         href
                         if href.startswith("https://")
@@ -246,11 +292,11 @@ def updateYoutube():
     index = 0
     link = None
     while link is None and index < len(versions):
-        links = scrapper.link(versions[index], [".apk", "youtube"])
-        for _ in links:
-            if "extended" in _ or "arm-v7a" in _:
-                continue
-            link = _
+        links = scrapper.link(
+            versions[index], [".apk", "youtube"], ["extended", "arm-v7a"]
+        )
+        if len(links) > 0:
+            link = links[0]
             break
         index += 1
     try:
@@ -269,11 +315,11 @@ def updateYoutubeMusic():
     index = 0
     link = None
     while link is None and index < len(versions):
-        links = scrapper.link(versions[index], [".apk", "music"])
-        for _ in links:
-            if "extended" in _ or "arm-v7a" in _:
-                continue
-            link = _
+        links = scrapper.link(
+            versions[index], [".apk", "music"], ["extended", "arm-v7a"]
+        )
+        if len(links) > 0:
+            link = links[0]
             break
         index += 1
     try:
@@ -283,42 +329,32 @@ def updateYoutubeMusic():
         return
 
 
-def updateSpotifyRaw():
-    while True:
-        link = input("Enter the link to the spotify apk: ")
-        print(f"\n\n{link}\nIs this the correct link? (y/n)")
-        if input().lower() == "y":
-            break
-    try:
-        AppBase(MACROS.SPOTIFY, link)
-    except Exception as e:
-        print(e)
-        return
-
-
 def updateSpotifySelenium():
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-
-    options = Options()
-    options.headless = True
-    driver = webdriver.Chrome(options=options)
-    driver.get("https://spotifygeek.tricksnation.com/link/download/1/")
-    elements = driver.find_elements(By.XPATH, "//a[@href]")
+    scrapper = WebScrapper(selenium=True)
+    scrapper.driver.get("https://spotifygeek.tricksnation.com/link/download/1/")
+    elements = scrapper.driver.find_elements(By.XPATH, "//a[@href]")
     link = None
     for element in elements:
         if element.get_attribute("href") and element.get_attribute("href").endswith(
             ".apk"
         ):
             link = element.get_attribute("href")
+            scrapper.quit_selenium()
             break
-    driver.quit()
     try:
         AppBase(MACROS.SPOTIFY, link)
     except Exception as e:
         print(e)
         return
+
+
+def push_changes():
+    os.chdir(GLOBAL.ARCHIVE_DIR)
+    os.system("git add .")
+    now = datetime.datetime.now()
+    time = now.strftime("%d/%m/%y - %H:%M:%S")
+    os.system(f'git commit -m "[ {time} ]"')
+    os.system("git push origin gh-pages")
 
 
 def main():
@@ -327,6 +363,7 @@ def main():
     updateYoutube()
     updateYoutubeMusic()
     updateSpotifySelenium()
+    push_changes()
 
 
 if __name__ == "__main__":
