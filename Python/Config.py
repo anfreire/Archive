@@ -1,83 +1,43 @@
 import os
-from LIB.Types import DBProps, SSHProps, SOAPProps
-from LIB.MetaClasses import Singleton
+from typing import Dict, Optional
+from MetaClasses import Singleton
 from configparser import ConfigParser
-from typing import Literal, Type, TypeVar
-from dataclasses import fields
-
-LITERAL_TO_DATACLASS = {
-    "db": DBProps,
-    "ssh": SSHProps,
-    "soap": SOAPProps,
-}
-
-T = TypeVar("T", DBProps, SSHProps, SOAPProps)
 
 
 class Config(metaclass=Singleton):
-    def __init__(self, config_name: str = "config") -> None:
-        self.config_file = f"{os.path.expanduser("~")}/.{config_name}.ini"
+    def __init__(self, file_name: str = "config") -> None:
+        self.config_file = os.path.join(os.path.expanduser("~"), f".{file_name}.ini")
         self.config = ConfigParser()
         self.read()
 
-    def save(self):
-        with open(self.config_file, "w") as configfile:
-            self.config.write(configfile)
+    def save(self) -> None:
+        try:
+            with open(self.config_file, "w") as configfile:
+                self.config.write(configfile)
+        except IOError as e:
+            raise IOError(f"Error saving config file: {e}")
 
-    def read(self):
-        if not os.path.exists(self.config_file):
-            return
-        self.config.read(self.config_file)
+    def read(self) -> None:
+        if os.path.exists(self.config_file):
+            try:
+                self.config.read(self.config_file)
+            except ConfigParser.Error as e:
+                raise ValueError(f"Error reading config file: {e}")
 
-    def _get_props(self, section: str, prop_class: Type[T]) -> T:
-        self.read()
-        if section not in self.config:
-            return prop_class(**{f.name: "" for f in fields(prop_class)})
-        return prop_class(
-            **{f.name: self.config[section].get(f.name, "") for f in fields(prop_class)}
-        )
+    def __getitem__(self, key: str) -> Optional[Dict[str, str]]:
+        return self.config[key] if key in self.config else None
 
-    def _set_props(self, section: str, value: T):
-        self.config[section] = {
-            f.name: getattr(value, f.name).strip() for f in fields(value)
-        }
+    def __setitem__(self, key: str, value: Dict[str, str]) -> None:
+        self.config[key] = value
         self.save()
 
-    @property
-    def db(self) -> DBProps:
-        return self._get_props("DATABASE", DBProps)
+    def get(
+        self, section: str, option: str, fallback: Optional[str] = None
+    ) -> Optional[str]:
+        return self.config.get(section, option, fallback=fallback)
 
-    @db.setter
-    def db(self, value: DBProps):
-        self._set_props("DATABASE", value)
-
-    @property
-    def ssh(self) -> SSHProps:
-        return self._get_props("SSH", SSHProps)
-
-    @ssh.setter
-    def ssh(self, value: SSHProps):
-        self._set_props("SSH", value)
-
-    @property
-    def soap(self) -> SOAPProps:
-        return self._get_props("SOAP", SOAPProps)
-
-    @soap.setter
-    def soap(self, value: SOAPProps):
-        self._set_props("SOAP", value)
-
-    def is_configured(
-        self, config: Literal["db", "ssh", "soap", "all"] = "all"
-    ) -> bool:
-        props_to_check = {
-            "db": [self.db],
-            "ssh": [self.ssh],
-            "soap": [self.soap],
-            "all": [self.db, self.ssh, self.soap],
-        }[config]
-
-        return all(
-            all(bool(getattr(prop, field.name)) for field in fields(prop))
-            for prop in props_to_check
-        )
+    def set(self, section: str, option: str, value: str) -> None:
+        if section not in self.config:
+            self.config[section] = {}
+        self.config[section][option] = value
+        self.save()

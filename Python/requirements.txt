@@ -1,0 +1,7 @@
+blessed
+sshtunnel
+psycopg2
+requests
+zeep
+urllib3
+pyperclip

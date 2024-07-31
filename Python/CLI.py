@@ -3,7 +3,7 @@ from copy import deepcopy
 from enum import Enum
 from typing import Literal
 from pyperclip import paste
-from LIB.MetaClasses import Singleton
+from MetaClasses import Singleton
 
 
 class Shortcuts(Enum):
@@ -46,7 +46,7 @@ class CLI(metaclass=Singleton):
         self.term = blessed.Terminal()
 
     def __del__(self) -> None:
-        self.__show_cursor()
+        self.show_cursor()
 
     def __call__(self) -> None:
         try:
@@ -56,8 +56,16 @@ class CLI(metaclass=Singleton):
                 self.__print(self.term.move_xy(0, 0))
                 with self.term.cbreak():
                     val = self.term.inkey()
+                    self.__clear()
+                    self.__print_header("Keyboard Input")
                     self.__print(
-                        f"\nYou pressed:\n- str(val): '{self.term.bold(str(val))}'\n- Name: {self.term.bold(str(val.name))}\n- Code: {self.term.bold(str(val.code))}\n- is_sequence: {self.term.bold(str(val.is_sequence))}"
+                        f"""- {self.term.bold("repr(val):")} {repr(val)}
+- {self.term.bold("val.code:")} '{val.code}'
+- {self.term.bold("val.name:")} '{val.name}'
+- {self.term.bold("val.is_sequence:")} '{val.is_sequence}'
+
+Press a key to see the output...
+"""
                     )
         except KeyboardInterrupt:
             return
@@ -89,7 +97,7 @@ class CLI(metaclass=Singleton):
         """
         self.__print(self.term.hide_cursor)
 
-    def __show_cursor(self) -> None:
+    def show_cursor(self) -> None:
         """Show the cursor.
 
         Returns:
@@ -346,7 +354,7 @@ class CLI(metaclass=Singleton):
                     value += " "
                 value = (
                     value[:value_index]
-                    + self.term.on_skyblue(value[value_index])
+                    + self.term.on_skyblue3(value[value_index])
                     + value[value_index + 1 :]
                 )
             to_print += f"{self.term.bold(field)}: {value}\n"
@@ -454,7 +462,7 @@ class CLI(metaclass=Singleton):
             "success": lambda x: self.term.green(self.term.bold(x)),
             "warning": lambda x: self.term.yellow(self.term.bold(x)),
         }
-        self.__hide_cursor() if not prompt else self.__show_cursor()
+        self.__hide_cursor() if not prompt else self.show_cursor()
         self.__clear()
         self.__print(color[str(type)](message))
         try:
