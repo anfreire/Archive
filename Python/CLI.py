@@ -148,6 +148,135 @@ Press a key to see the output...
                 to_print += "    "
         self.__print(to_print)
 
+    ############################################################################
+    #   INPUT
+
+    def __print_input_input(
+        self,
+        value: str,
+        index: int,
+        suggested: str | None,
+    ) -> None:
+        to_print = value
+        if suggested:
+            to_print += self.term.snow4(suggested[len(value) :])
+        if index == len(value):
+            to_print += " "
+        to_print = self.term.on_skyblue3(to_print[:index]) + to_print[index:]
+        self.__print(to_print + "\n\n")
+
+    def __print_input_inputed(self, inputed: list[str]) -> None:
+        to_print = f"{self.term.bold('Inputed:')}\n"
+        for value in inputed:
+            to_print += f"- {value}\n"
+        self.__print(to_print)
+
+    def __print_input(
+        self, value: str, index: int, suggested: str | None, inputed: list[str]
+    ) -> None:
+        term_height = self.term.height - 6
+        term_height -= 2  # input
+        self.__print_input_input(value, index, suggested)
+        if len(inputed) and term_height > 0:
+            term_height -= 1  # inputed title
+            self.__print_input_inputed(inputed[-term_height:])
+
+    def __input_input(
+        self, value: str, index: int, suggested: str | None, autocomplete: list[str]
+    ) -> tuple[str, int, str | None]:
+        try:
+            with self.term.cbreak():
+                val = self.term.inkey()
+
+                match val.code:
+                    case 343:  # Enter
+                        raise Signals.Selected
+                    case 260:  # Left
+                        index = max(0, index - 1)
+                    case 261:  # Right
+                        index = min(len(value), index + 1)
+                    case 259:  # Up
+                        if len(autocomplete):
+                            suggestions = [
+                                word
+                                for word in autocomplete
+                                if word.lower().startswith(value.lower())
+                            ]
+                            if len(suggestions) == 0:
+                                suggested = None
+                            if suggested is None:
+                                suggested = suggestions[0]
+                            else:
+                                index = (suggestions.index(suggested) - 1) % len(
+                                    suggestions
+                                )
+                                suggested = suggestions[index]
+                    case 258:  # Down
+                        if len(autocomplete):
+                            suggestions = [
+                                word
+                                for word in autocomplete
+                                if word.lower().startswith(value.lower())
+                            ]
+                            if len(suggestions) == 0:
+                                suggested = None
+                            if suggested is None:
+                                suggested = suggestions[0]
+                            else:
+                                index = (suggestions.index(suggested) + 1) % len(
+                                    suggestions
+                                )
+                                suggested = suggestions[index]
+                    case 512:  # TAB
+                        if suggested:
+                            value = suggested
+                            index = len(value)
+                            suggested = None
+                    case 263:  # Backspace
+                        value = value[: index - 1] + value[index:]
+                        index = max(0, index - 1)
+                    case _:
+                        old_value = value
+
+                        if val == "\x16":  # Ctrl + V
+                            new_value = old_value[:index] + paste() + old_value[index:]
+                            value = new_value
+                            index = index + len(paste())
+
+                        elif not val.is_sequence and val.isprintable():
+                            new_value = old_value[:index] + val + old_value[index:]
+                            value = new_value
+                            index = index + 1
+
+                return value, index, suggested
+        except KeyboardInterrupt:
+            self.__clear()
+            raise Signals.Exited
+
+    def input(
+        self, title: str, value: str = "", autocomplete: list[str] = []
+    ) -> str | None:
+        index = len(value)
+        suggested = None
+        inputed = []
+        while True:
+            try:
+                self.__hide_cursor()
+                self.__clear()
+                self.__print_header(title)
+                self.__print_input(value, index, suggested, inputed)
+                self.__print_shortcuts(
+                    [Shortcuts.EXIT, Shortcuts.PASTE, Shortcuts.SUBMIT]
+                )
+                value, index, suggested = self.__input_input(
+                    value, index, suggested, autocomplete
+                )
+            except (Signals.Exited, Signals.Selected) as e:
+                if type(e) == Signals.Exited:
+                    return None
+                return value
+
+
     ################################################################################
     #   SELECT
 
